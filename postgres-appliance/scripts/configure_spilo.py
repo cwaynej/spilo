@@ -18,6 +18,9 @@ from copy import deepcopy
 from six.moves.urllib_parse import urlparse
 from collections import defaultdict
 
+from datetime import datetime, timezone
+from dateutil.parser import isoparse as _parse_iso
+
 import yaml
 import pystache
 import requests
@@ -228,8 +231,8 @@ bootstrap:
   {{#CLONE_WITH_WALE}}
   method: clone_with_wale
   clone_with_wale:
-    command: envdir "{{CLONE_WALE_ENV_DIR}}" python3 /scripts/clone_with_wale.py
-      --recovery-target-time="{{CLONE_TARGET_TIME}}"
+    command: envdir "{{CLONE_WALE_ENV_DIR}}" python3 /scripts/clone_with_wale.py{{#CLONE_TARGET_TIME}}
+      --recovery-target-time="{{CLONE_TARGET_TIME}}"{{/CLONE_TARGET_TIME}}
     recovery_conf:
         restore_command: envdir "{{CLONE_WALE_ENV_DIR}}" timeout "{{WAL_RESTORE_TIMEOUT}}"
           /scripts/restore_command.sh "%f" "%p"
@@ -592,6 +595,27 @@ def get_placeholders(provider):
     placeholders.setdefault('CLONE_WITH_BASEBACKUP', '')
     placeholders.setdefault('CLONE_TARGET_TIME', '')
     placeholders.setdefault('CLONE_TARGET_INCLUSIVE', True)
+
+    # if CLONE_TARGET_TIME is in the future PG13+ won't succeed as it never reaches the target WAL
+    # we need to omit CLONE_TARGET_TIME from the restore command to restore previous behavior of
+    # setting future timestamp: in postgresql object
+    raw_ctt = (placeholders.get('CLONE_TARGET_TIME') or '').strip()
+    has_valid_ctt = False
+    try:
+        t = _parse_iso(raw_ctt)
+        if t.tzinfo is not None and t <= datetime.now(timezone.utc):
+            # valid date in the past; render
+            has_valid_ctt = True
+            logging.info('CLONE_TARGET_TIME verified and applied to restore command.')
+        else:
+            raw_ctt = ''  # no tz or future; omit
+            logging.info('CLONE_TARGET_TIME invalid or future date. Set to empty.')
+    except Exception:
+        raw_ctt = ''      # unparsable; omit
+        logging.warning('CLONE_TARGET_TIME could not be parsed. Set to empty')
+    if not has_valid_ctt:
+        placeholders['CLONE_TARGET_TIME'] = '' # this removes recovery-target-time option from config
+
 
     placeholders.setdefault('LOG_GROUP_BY_DATE', False)
     placeholders.setdefault('LOG_SHIP_HOURLY', '')
