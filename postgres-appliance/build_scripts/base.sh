@@ -97,7 +97,8 @@ for version in $DEB_PG_SUPPORTED_VERSIONS; do
                 "postgresql-${version}-decoderbufs"
                 "postgresql-${version}-pllua"
                 "postgresql-${version}-pgvector"
-                "postgresql-${version}-roaringbitmap")
+                "postgresql-${version}-roaringbitmap"
+                "postgresql-${version}-ip4r")
 
         if [ "$version" -ge 14 ]; then
             EXTRAS+=("postgresql-${version}-pgfaceting")
